@@ -4,10 +4,13 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
 import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
 
 # --- الإعدادات ---
 TOKEN = os.environ.get("BOT_TOKEN", "")
 DB_NAME = "rss_bot.db"
+PORT = 3000
 
 # --- إعداد التسجيل ---
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -92,6 +95,18 @@ async def check_feeds_for_user(user_id):
     conn.close()
     return new_count
 
+# --- خادم HTTP بسيط للفحص الصحي (Health Check) ---
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    server.serve_forever()
+
+# --- الوظيفة الرئيسية ---
 def main():
     init_db()
     global app
@@ -101,7 +116,10 @@ def main():
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
-    print("البوت يعمل الآن...")
+    
+    # تشغيل خادم HTTP في خيط منفصل
+    Thread(target=run_health_server, daemon=True).start()
+    print(f"البوت يعمل الآن مع فحص صحي على المنفذ {PORT}...")
     app.run_polling()
 
 if __name__ == "__main__":
