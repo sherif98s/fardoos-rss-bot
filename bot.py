@@ -1,4 +1,4 @@
-import logging, os, sqlite3, asyncio, html, re
+import logging, os, sqlite3, asyncio, html, re, urllib.parse
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -57,22 +57,26 @@ async def test_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"<b>📋 معاينة الخلاصة: {title}</b>\n\n"
         for i, entry in enumerate(entries, 1):
             entry_title = html.escape(entry.get("title", "بدون عنوان"))
-            entry_link = entry.get("link", "")
+            entry_link = urllib.parse.quote(entry.get("link", ""), safe=':/?&=')
             published = entry.get("published", "")
             date_str = ""
             if published:
                 try:
                     dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %z")
-                    date_str = dt.strftime("%Y-%m-%d %H:%M")
+                    date_str = html.escape(dt.strftime("%Y-%m-%d %H:%M"))
                 except:
-                    date_str = published
+                    date_str = html.escape(published)
             
             msg += f"<b>{i}. {entry_title}</b>\n"
             msg += f"<a href='{entry_link}'>🔗 رابط المقال</a>\n"
             if date_str:
                 msg += f"<i>📅 {date_str}</i>\n\n"
         msg += "لإضافة هذه الخلاصة، استخدم الأمر: /add <الرابط>"
-        await update.message.reply_text(msg, parse_mode="HTML")
+        try:
+            await update.message.reply_text(msg, parse_mode="HTML")
+        except Exception:
+            plain_msg = msg.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "").replace("<a href='", "").replace("'>", " ")
+            await update.message.reply_text(plain_msg)
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ أثناء فحص الرابط: {str(e)}")
 
@@ -141,15 +145,15 @@ async def check_feeds_for_user(user_id):
                 c.execute("SELECT 1 FROM sent_entries WHERE user_id=? AND entry_id=?", (user_id, entry_id))
                 if c.fetchone() is None:
                     title = html.escape(entry.get("title", "بدون عنوان"))
-                    link = entry.get("link", "")
+                    link = urllib.parse.quote(entry.get("link", ""), safe=':/?&=')
                     published = entry.get("published", "")
                     date_str = ""
                     if published:
                         try:
                             dt = datetime.strptime(published, "%a, %d %b %Y %H:%M:%S %z")
-                            date_str = dt.strftime("%Y-%m-%d %H:%M")
+                            date_str = html.escape(dt.strftime("%Y-%m-%d %H:%M"))
                         except:
-                            date_str = published
+                            date_str = html.escape(published)
                     
                     caption = (
                         f"<b>📰 {title}</b>\n"
@@ -165,10 +169,15 @@ async def check_feeds_for_user(user_id):
                             await app.bot.send_photo(chat_id=user_id, photo=image_url, caption=caption, parse_mode="HTML")
                         else:
                             await app.bot.send_message(chat_id=user_id, text=caption, parse_mode="HTML")
-                        c.execute("INSERT INTO sent_entries (user_id, entry_id) VALUES (?, ?)", (user_id, entry_id))
-                        new_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send entry {entry_id}: {e}")
+                    except Exception:
+                        plain_caption = caption.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "").replace("<a href='", "").replace("'>", " ")
+                        if image_url:
+                            await app.bot.send_photo(chat_id=user_id, photo=image_url, caption=plain_caption)
+                        else:
+                            await app.bot.send_message(chat_id=user_id, text=plain_caption)
+                    
+                    c.execute("INSERT INTO sent_entries (user_id, entry_id) VALUES (?, ?)", (user_id, entry_id))
+                    new_count += 1
         except Exception as e:
             logger.error(f"Error checking feed {url}: {e}")
     conn.commit()
@@ -206,7 +215,7 @@ def main():
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
     Thread(target=run_health_server, daemon=True).start()
-    logger.info("Bot started with auto-check, HTML formatting, and image support...")
+    logger.info("Bot started with auto-check, HTML formatting, image support, and fallback to plain text...")
     app.run_polling()
 
 if __name__ == "__main__":
