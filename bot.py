@@ -23,7 +23,17 @@ def init_db():
     conn.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن مع فحص تلقائي وصور وتنسيق HTML.")
+    user_name = update.effective_user.first_name
+    welcome_msg = (
+        f"أهلاً بك، {user_name}! 🖐️\n\n"
+        "أنا <b>قارئ RSS الذكي</b>، مهمتي أن أبقيك على اطلاع دائم بآخر الأخبار من مصادرك المفضلة.\n\n"
+        "📌 <b>لتبدأ الآن:</b>\n"
+        "• استخدم /add <رابط> لإضافة مصدر جديد\n"
+        "• استخدم /test <رابط> لمعاينة المصدر قبل إضافته\n"
+        "• استخدم /list لعرض مصادرك الحالية\n\n"
+        "أرسل /help في أي وقت لعرض جميع الأوامر."
+    )
+    await update.message.reply_text(welcome_msg, parse_mode="HTML")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
