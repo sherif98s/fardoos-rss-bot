@@ -1,0 +1,15 @@
+name: Deploy to SnapDeploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger SnapDeploy Deployment
+        run: |
+          curl -X POST "${{ secrets.SNAPDEPLOY_URL }}" \
+          -H "Authorization: Bearer ${{ secrets.SNAPDEPLOY_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d '{"variables": {"DB_URL": "${{ secrets.DB_URL }}"}}'
