@@ -1,0 +1,7 @@
+# الملفات الحساسة
+.env
+rss_bot.db
+/data/
+*.db
+__pycache__/
+*.pyc
