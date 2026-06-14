@@ -1,133 +1,70 @@
-import logging
-import os
+import logging, os, json, sqlite3, requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
-from supabase import create_client, Client
 
-TOKEN = "8936834692:AAHwg_zdI-Jrcz3HI5GOVaIfZGKR_Sajndc"
-SUPABASE_URL = "https://arkkvqozdakwaundrwgp.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFya2t2cW96ZGFrd2F1bmRyd2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MjY2OTMsImV4cCI6MjA5NzAwMjY5M30.hKg0E17V0TuDjmMgqucWAgItW6Djw7aiGMjtbN0oCIs"
+BOT_TOKEN = "YOUR_BOT_TOKEN"  # استبدل هذا بالتوكن الحقيقي
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://arkkvqozdakwaundrwgp.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 PORT = 3000
-
-supabase: Client = None
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def init_supabase():
-    global supabase
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    # إنشاء الجداول عبر واجهة SQL أو ننشئها يدويًا أول مرة
-    try:
-        supabase.table("feeds").select("user_id").limit(1).execute()
-    except:
-        pass  # الجدول غير موجود، سيتم إنشاؤه من اللوحة
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً بك يا قائد. البوت الآن متصل بـ Supabase.")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("الأوامر: /start, /add <رابط>, /list, /check, /help")
+    await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن مع Supabase REST.")
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("استخدم الأمر هكذا: /add <رابط الخلاصة>")
-        return
-    url = context.args[0]
-    feed = feedparser.parse(url)
-    if feed.bozo and not feed.entries:
-        await update.message.reply_text("رابط الخلاصة غير صالح.")
-        return
+    if not context.args: await update.message.reply_text("استخدم /add <رابط>"); return
+    url = context.args[0]; feed = feedparser.parse(url)
+    if feed.bozo and not feed.entries: await update.message.reply_text("رابط غير صالح."); return
     title = feed.feed.get("title", "بدون عنوان")
-
-    # حفظ في Supabase
-    try:
-        supabase.table("feeds").insert({
-            "user_id": user_id,
-            "feed_url": url,
-            "feed_title": title
-        }).execute()
-        await update.message.reply_text(f"تمت إضافة: {title}")
-    except Exception as e:
-        if "duplicate key" in str(e).lower():
-            await update.message.reply_text("هذه الخلاصة مضافة بالفعل.")
-        else:
-            await update.message.reply_text("حدث خطأ أثناء الحفظ.")
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/feeds", json={"user_id": user_id, "feed_url": url, "feed_title": title}, headers=HEADERS)
+    if r.status_code == 201: await update.message.reply_text(f"تمت إضافة: {title}")
+    else: await update.message.reply_text("هذه الخلاصة مضافة بالفعل." if "duplicate" in r.text else "حدث خطأ أثناء الحفظ.")
 
 async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    try:
-        res = supabase.table("feeds").select("feed_title", "feed_url").eq("user_id", user_id).execute()
-        rows = res.data
-        if not rows:
-            await update.message.reply_text("لا توجد خلاصات.")
-            return
-        msg = "\n".join([f"- {r['feed_title']}: {r['feed_url']}" for r in rows])
-        await update.message.reply_text(msg)
-    except Exception as e:
-        await update.message.reply_text("حدث خطأ.")
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/feeds?select=feed_title,feed_url&user_id=eq.{user_id}", headers=HEADERS)
+    rows = r.json()
+    if not rows: await update.message.reply_text("لا توجد خلاصات."); return
+    await update.message.reply_text("\n".join([f"- {row['feed_title']}: {row['feed_url']}" for row in rows]))
 
 async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    count = await check_feeds_for_user(user_id)
-    if count > 0:
-        await update.message.reply_text(f"تم إرسال {count} مقال جديد.")
-    else:
-        await update.message.reply_text("لا توجد مقالات جديدة.")
-
-async def check_feeds_for_user(user_id):
-    try:
-        res = supabase.table("feeds").select("feed_url").eq("user_id", user_id).execute()
-        feeds = res.data
-        new_count = 0
-        for row in feeds:
-            url = row['feed_url']
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:5]:
-                entry_id = entry.get("id", entry.get("link", ""))
-                if not entry_id:
-                    continue
-                # التحقق من المقالات المرسلة
-                check_res = supabase.table("sent_entries").select("entry_id").eq("user_id", user_id).eq("entry_id", entry_id).execute()
-                if not check_res.data:
-                    msg = f"{entry.get('title', '')}\n{entry.get('link', '')}"
-                    await app.bot.send_message(chat_id=user_id, text=msg)
-                    supabase.table("sent_entries").insert({
-                        "user_id": user_id,
-                        "entry_id": entry_id
-                    }).execute()
-                    new_count += 1
-        return new_count
-    except Exception as e:
-        logger.error(f"Error checking feeds: {e}")
-        return 0
+    await update.message.reply_text("جاري الفحص...")
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/feeds?select=feed_url&user_id=eq.{user_id}", headers=HEADERS)
+    feeds = r.json(); new_count = 0
+    for item in feeds:
+        url = item['feed_url']; feed = feedparser.parse(url)
+        for entry in feed.entries[:5]:
+            eid = entry.get("id", entry.get("link", ""))
+            if not eid: continue
+            check = requests.get(f"{SUPABASE_URL}/rest/v1/sent_entries?select=entry_id&user_id=eq.{user_id}&entry_id=eq.{eid}", headers=HEADERS)
+            if not check.json():
+                msg = f"{entry.get('title', '')}\n{entry.get('link', '')}"
+                await app.bot.send_message(chat_id=user_id, text=msg)
+                requests.post(f"{SUPABASE_URL}/rest/v1/sent_entries", json={"user_id": user_id, "entry_id": eid}, headers=HEADERS)
+                new_count += 1
+    await update.message.reply_text(f"تم إرسال {new_count} مقال جديد." if new_count > 0 else "لا توجد مقالات جديدة.")
 
 class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-def run_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
+    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+def run_health_server(): HTTPServer(("0.0.0.0", 3000), HealthHandler).serve_forever()
 
 def main():
-    init_supabase()
     global app
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
     Thread(target=run_health_server, daemon=True).start()
-    print("البوت يعمل الآن مع Supabase عبر HTTP...")
+    print("البوت يعمل الآن مع Supabase REST...")
     app.run_polling()
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
