@@ -1,12 +1,12 @@
-import logging, os, json, sqlite3, requests
+import logging, os, json, requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
-BOT_TOKEN = "8936834692:AAHwg_zdI-Jrcz3HI5GOVaIfZGKR_Sajndc"  # استبدل هذا بالتوكن الحقيقي
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://arkkvqozdakwaundrwgp.supabase.co")
+BOT_TOKEN = "8936834692:AAHwg_zdI-Jrcz3HI5GOVaIfZGKR_Sajndc"
+SUPABASE_URL = "https://arkkvqozdakwaundrwgp.supabase.co"
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 PORT = 3000
