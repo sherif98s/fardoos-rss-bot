@@ -1,33 +1,34 @@
 import logging
-import sqlite3
+import os
+import asyncio
+import asyncpg
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
-import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
-# --- الإعدادات ---
 TOKEN = os.environ.get("BOT_TOKEN", "")
-DB_NAME = "rss_bot.db"
+DB_URL = os.environ.get("DB_URL", "")
 PORT = 3000
 
-# --- إعداد التسجيل ---
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- إعداد قاعدة البيانات ---
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS feeds (user_id INTEGER, feed_url TEXT UNIQUE, feed_title TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS sent_entries (user_id INTEGER, entry_id TEXT, PRIMARY KEY (user_id, entry_id))""")
-    conn.commit()
-    conn.close()
+async def init_db():
+    conn = await asyncpg.connect(DB_URL)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS feeds (
+            user_id BIGINT,
+            feed_url TEXT,
+            feed_title TEXT,
+            PRIMARY KEY (user_id, feed_url)
+        )
+    """)
+    await conn.close()
 
-# --- أوامر البوت ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن من السحابة.")
+    await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن بقاعدة دائمة.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("الأوامر: /start, /add <رابط>, /list, /check, /help")
@@ -43,27 +44,25 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("رابط الخلاصة غير صالح.")
         return
     title = feed.feed.get("title", "بدون عنوان")
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
+    conn = await asyncpg.connect(DB_URL)
     try:
-        c.execute("INSERT INTO feeds (user_id, feed_url, feed_title) VALUES (?, ?, ?)", (user_id, url, title))
-        conn.commit()
+        await conn.execute("INSERT INTO feeds (user_id, feed_url, feed_title) VALUES ($1, $2, $3)",
+                           user_id, url, title)
         await update.message.reply_text(f"تمت إضافة: {title}")
-    except sqlite3.IntegrityError:
+    except asyncpg.UniqueViolationError:
         await update.message.reply_text("هذه الخلاصة مضافة بالفعل.")
-    conn.close()
+    finally:
+        await conn.close()
 
 async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT feed_title, feed_url FROM feeds WHERE user_id=?", (user_id,))
-    rows = c.fetchall()
-    conn.close()
+    conn = await asyncpg.connect(DB_URL)
+    rows = await conn.fetch("SELECT feed_title, feed_url FROM feeds WHERE user_id=$1", user_id)
+    await conn.close()
     if not rows:
         await update.message.reply_text("لا توجد خلاصات.")
         return
-    msg = "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
+    msg = "\n".join([f"- {r['feed_title']}: {r['feed_url']}" for r in rows])
     await update.message.reply_text(msg)
 
 async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,27 +74,28 @@ async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("لا توجد مقالات جديدة.")
 
 async def check_feeds_for_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT feed_url FROM feeds WHERE user_id=?", (user_id,))
-    feeds = [row[0] for row in c.fetchall()]
+    conn = await asyncpg.connect(DB_URL)
+    rows = await conn.fetch("SELECT feed_url FROM feeds WHERE user_id=$1", user_id)
     new_count = 0
-    for url in feeds:
+    for row in rows:
+        url = row['feed_url']
         feed = feedparser.parse(url)
         for entry in feed.entries[:5]:
             entry_id = entry.get("id", entry.get("link", ""))
-            if not entry_id: continue
-            c.execute("SELECT 1 FROM sent_entries WHERE user_id=? AND entry_id=?", (user_id, entry_id))
-            if c.fetchone() is None:
+            if not entry_id:
+                continue
+            exists = await conn.fetchval("SELECT 1 FROM sent_entries WHERE user_id=$1 AND entry_id=$2", user_id, entry_id)
+            if not exists:
                 msg = f"{entry.get('title', '')}\n{entry.get('link', '')}"
                 await app.bot.send_message(chat_id=user_id, text=msg)
-                c.execute("INSERT INTO sent_entries (user_id, entry_id) VALUES (?, ?)", (user_id, entry_id))
+                try:
+                    await conn.execute("INSERT INTO sent_entries (user_id, entry_id) VALUES ($1, $2)", user_id, entry_id)
+                except:
+                    pass
                 new_count += 1
-    conn.commit()
-    conn.close()
+    await conn.close()
     return new_count
 
-# --- خادم HTTP بسيط للفحص الصحي (Health Check) ---
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -106,9 +106,8 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     server.serve_forever()
 
-# --- الوظيفة الرئيسية ---
-def main():
-    init_db()
+async def main():
+    await init_db()
     global app
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -116,11 +115,9 @@ def main():
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
-    
-    # تشغيل خادم HTTP في خيط منفصل
     Thread(target=run_health_server, daemon=True).start()
-    print(f"البوت يعمل الآن مع فحص صحي على المنفذ {PORT}...")
+    print(f"البوت يعمل الآن بقاعدة دائمة على المنفذ {PORT}...")
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
