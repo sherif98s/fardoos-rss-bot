@@ -5,7 +5,7 @@ import feedparser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"  # استبدل هذا بالتوكن الحقيقي
+BOT_TOKEN = "8936834692:AAHwg_zdI-Jrcz3HI5GOVaIfZGKR_Sajndc"  # استبدل هذا بالتوكن الحقيقي
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://arkkvqozdakwaundrwgp.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
