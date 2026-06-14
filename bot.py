@@ -1,4 +1,4 @@
-import logging, os, sqlite3, traceback, asyncio
+import logging, os, sqlite3, asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
@@ -13,23 +13,47 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 def init_db():
-    try:
-        os.makedirs("/data", exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("CREATE TABLE IF NOT EXISTS feeds (user_id INTEGER, feed_url TEXT UNIQUE, feed_title TEXT)")
-        c.execute("CREATE TABLE IF NOT EXISTS sent_entries (user_id INTEGER, entry_id TEXT, PRIMARY KEY (user_id, entry_id))")
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully at /data/rss_bot.db")
-    except Exception as e:
-        logger.error(f"Init DB Error: {traceback.format_exc()}")
+    os.makedirs("/data", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS feeds (user_id INTEGER, feed_url TEXT UNIQUE, feed_title TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS sent_entries (user_id INTEGER, entry_id TEXT, PRIMARY KEY (user_id, entry_id))")
+    conn.commit()
+    conn.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن مع فحص تلقائي.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("الأوامر: /start, /add <رابط>, /list, /check, /help")
+    await update.message.reply_text("الأوامر: /start, /add <رابط>, /test <رابط>, /list, /check, /help")
+
+async def test_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text("استخدم الأمر هكذا: /test <رابط الخلاصة>")
+        return
+    url = context.args[0]
+    await update.message.reply_text("🔍 جاري فحص الخلاصة...")
+    try:
+        feed = feedparser.parse(url)
+        if feed.bozo and not feed.entries:
+            await update.message.reply_text("❌ رابط الخلاصة غير صالح أو لا يحتوي على مقالات.")
+            return
+        title = feed.feed.get("title", "بدون عنوان")
+        entries = feed.entries[:3]
+        if not entries:
+            await update.message.reply_text(f"⚠️ الخلاصة '{title}' ليس بها مقالات حالياً.")
+            return
+        
+        msg = f"📋 **معاينة الخلاصة: {title}**\n\n"
+        for i, entry in enumerate(entries, 1):
+            entry_title = entry.get("title", "بدون عنوان")
+            entry_link = entry.get("link", "")
+            msg += f"{i}. {entry_title}\n{entry_link}\n\n"
+        msg += "لإضافة هذه الخلاصة، استخدم الأمر: /add <الرابط>"
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ أثناء فحص الرابط: {str(e)}")
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -48,27 +72,22 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except sqlite3.IntegrityError:
         await update.message.reply_text("هذه الخلاصة مضافة بالفعل.")
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في الحفظ: {str(e)}")
+        await update.message.reply_text(f"خطأ في الحفظ: {str(e)}")
 
 async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("SELECT feed_title, feed_url FROM feeds WHERE user_id=?", (user_id,))
-        rows = c.fetchall()
-        conn.close()
-        if not rows: await update.message.reply_text("لا توجد خلاصات."); return
-        msg = "\n".join([f"- {r[0]}: {r[1]}" for r in rows])
-        await update.message.reply_text(msg)
-    except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في القراءة: {str(e)}")
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT feed_title, feed_url FROM feeds WHERE user_id=?", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    if not rows: await update.message.reply_text("لا توجد خلاصات."); return
+    await update.message.reply_text("\n".join([f"- {r[0]}: {r[1]}" for r in rows]))
 
 async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     count = await check_feeds_for_user(user_id)
-    if count > 0: await update.message.reply_text(f"تم إرسال {count} مقال جديد.")
-    else: await update.message.reply_text("لا توجد مقالات جديدة.")
+    await update.message.reply_text(f"تم إرسال {count} مقال جديد." if count > 0 else "لا توجد مقالات جديدة.")
 
 async def check_feeds_for_user(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -112,8 +131,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
 def run_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
+    HTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
 
 def main():
     init_db()
@@ -121,6 +139,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("test", test_feed))
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
