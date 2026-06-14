@@ -5,7 +5,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
 
 # --- الإعدادات ---
-TOKEN = "8936834692:AAG-ORYDpaUxl6U2qOZENor4RevdaNU-D_c"
+import os
+TOKEN = os.environ.get("BOT_TOKEN", "")
 DB_NAME = "rss_bot.db"
 
 # --- إعداد التسجيل ---
