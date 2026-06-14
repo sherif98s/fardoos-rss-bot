@@ -4,15 +4,10 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
 import os
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from threading import Thread
-import asyncio
 
 # --- الإعدادات ---
 TOKEN = os.environ.get("BOT_TOKEN", "")
-YOUR_USER_ID = int(os.environ.get("USER_ID", "0"))
-DB_NAME = "/app/rss_bot.db"
-PORT = 3000
+DB_NAME = "rss_bot.db"
 
 # --- إعداد التسجيل ---
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -97,20 +92,6 @@ async def check_feeds_for_user(user_id):
     conn.close()
     return new_count
 
-# --- خادم HTTP لمنع السبات واستقبال أوامر cron-job ---
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/check":
-            asyncio.run(check_feeds_for_user(YOUR_USER_ID))
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-def run_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
-
-# --- الوظيفة الرئيسية ---
 def main():
     init_db()
     global app
@@ -120,8 +101,7 @@ def main():
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
     app.add_handler(CommandHandler("check", check_feeds_command))
-    Thread(target=run_server, daemon=True).start()
-    print(f"البوت وخادم التفعيل يعملان على المنفذ {PORT}...")
+    print("البوت يعمل الآن...")
     app.run_polling()
 
 if __name__ == "__main__":
