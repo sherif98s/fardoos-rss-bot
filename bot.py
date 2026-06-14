@@ -1,4 +1,4 @@
-import logging, os, sqlite3, traceback
+import logging, os, sqlite3, traceback, asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import feedparser
@@ -26,7 +26,10 @@ def init_db():
         logger.error(f"Init DB Error: {traceback.format_exc()}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أهلاً بك يا قائد. جاهز للتشخيص.")
+    await update.message.reply_text("أهلاً بك يا قائد. البوت يعمل الآن مع فحص تلقائي.")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("الأوامر: /start, /add <رابط>, /list, /check, /help")
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -42,10 +45,10 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         await update.message.reply_text(f"تمت إضافة: {title}")
+    except sqlite3.IntegrityError:
+        await update.message.reply_text("هذه الخلاصة مضافة بالفعل.")
     except Exception as e:
-        error_msg = f"حفظ الخطأ: {str(e)}"
-        logger.error(error_msg)
-        await update.message.reply_text(f"❌ {error_msg}")
+        await update.message.reply_text(f"❌ خطأ في الحفظ: {str(e)}")
 
 async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -61,22 +64,69 @@ async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ في القراءة: {str(e)}")
 
-# ... (باقي الدوال مشابهة مع try/except)
+async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    count = await check_feeds_for_user(user_id)
+    if count > 0: await update.message.reply_text(f"تم إرسال {count} مقال جديد.")
+    else: await update.message.reply_text("لا توجد مقالات جديدة.")
+
+async def check_feeds_for_user(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT feed_url FROM feeds WHERE user_id=?", (user_id,))
+    feeds = [row[0] for row in c.fetchall()]
+    new_count = 0
+    for url in feeds:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:5]:
+                entry_id = entry.get("id", entry.get("link", ""))
+                if not entry_id: continue
+                c.execute("SELECT 1 FROM sent_entries WHERE user_id=? AND entry_id=?", (user_id, entry_id))
+                if c.fetchone() is None:
+                    msg = f"{entry.get('title', '')}\n{entry.get('link', '')}"
+                    await app.bot.send_message(chat_id=user_id, text=msg)
+                    c.execute("INSERT INTO sent_entries (user_id, entry_id) VALUES (?, ?)", (user_id, entry_id))
+                    new_count += 1
+        except Exception as e:
+            logger.error(f"Error checking feed {url}: {e}")
+    conn.commit()
+    conn.close()
+    return new_count
+
+async def check_all_feeds():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id FROM feeds")
+    users = [row[0] for row in c.fetchall()]
+    conn.close()
+    for user_id in users:
+        await check_feeds_for_user(user_id)
 
 class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
-def run_health_server(): HTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
+    def do_GET(self):
+        if self.path == "/check":
+            asyncio.run(check_all_feeds())
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    server.serve_forever()
 
 def main():
     init_db()
     global app
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
-    # باقي الهاندلرز...
+    app.add_handler(CommandHandler("check", check_feeds_command))
     Thread(target=run_health_server, daemon=True).start()
-    logger.info("Bot started with diagnostics mode...")
+    logger.info("Bot started with auto-check enabled...")
     app.run_polling()
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()
