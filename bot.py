@@ -7,9 +7,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from supabase import create_client, Client
 
-TOKEN = os.environ.get("BOT_TOKEN", "")
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+TOKEN = "8936834692:AAHwg_zdI-Jrcz3HI5GOVaIfZGKR_Sajndc"
+SUPABASE_URL = "https://arkkvqozdakwaundrwgp.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFya2t2cW96ZGFrd2F1bmRyd2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MjY2OTMsImV4cCI6MjA5NzAwMjY5M30.hKg0E17V0TuDjmMgqucWAgItW6Djw7aiGMjtbN0oCIs"
 PORT = 3000
 
 supabase: Client = None
