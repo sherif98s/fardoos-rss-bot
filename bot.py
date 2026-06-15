@@ -17,7 +17,11 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 def init_db():
-    os.makedirs("/data", exist_ok=True)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # في GitHub Actions، لا حاجة لإنشاء مجلد خاص
+        pass
+    else:
+        os.makedirs("/data", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS feeds (user_id INTEGER, feed_url TEXT UNIQUE, feed_title TEXT)")
