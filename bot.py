@@ -30,7 +30,7 @@ def extract_image_url(entry):
     return None
 
 async def check_comss(bot):
-    """فحص موقع comss.ru/club واستخراج أحدث البرامج"""
+    """فحص موقع comss.ru/club واستخراج أحدث البرامج مع الصور"""
     url = "https://www.comss.ru/list.php?c=club"
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -38,14 +38,15 @@ async def check_comss(bot):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
-        # المحدد الصحيح بناءً على هيكل HTML الذي شاركته
-        items = soup.select("div.row div.col-xs-8.col-sm-8.col-md-6.col-lg-6")[:5]
+        # نأخذ كل div.row التي تحتوي على البرامج
+        items = soup.select("div#main-content div.row")[:5]
         
         if not items:
             logger.warning("Comss: لم يتم العثور على عناصر. قد يكون الموقع غير متاح أو تغير هيكله.")
             return
 
         for item in items:
+            # البحث عن العنوان والرابط
             title_tag = item.select_one("div.list_title.clip a")
             if not title_tag:
                 continue
@@ -53,21 +54,31 @@ async def check_comss(bot):
             link = title_tag.get("href", "")
             if link and not link.startswith("http"):
                 link = "https://www.comss.ru/" + link
-            
-            # استخراج الوصف من div.list_desc.clip
-            desc_tag = item.parent.select_one("div.list_desc.clip") if item.parent else None
+
+            # البحث عن الوصف
+            desc_tag = item.select_one("div.list_desc.clip")
             description = html.escape(desc_tag.text.strip()[:200]) if desc_tag else ""
-            
+
+            # البحث عن الصورة (img.img-icon)
+            img_tag = item.select_one("img.img-icon")
+            image_url = img_tag.get("src", "") if img_tag else ""
+
             caption = f"<b>💿 {title}</b>\n"
             if description:
                 caption += f"<i>{description}</i>\n"
             caption += f"<a href='{link}'>🔗 رابط البرنامج</a>"
-            
+
             try:
-                await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+                if image_url:
+                    await bot.send_photo(chat_id=YOUR_USER_ID, photo=image_url, caption=caption, parse_mode="HTML")
+                else:
+                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Failed to send comss entry: {e}")
-                
+                # إذا فشلت الصورة، نرسل النص فقط
+                if image_url:
+                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+
     except requests.exceptions.RequestException as e:
         logger.error(f"Comss request failed: {e}")
     except Exception as e:
