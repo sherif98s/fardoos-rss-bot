@@ -38,16 +38,21 @@ async def check_comss(bot):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
-        # نأخذ كل div.row التي تحتوي على البرامج
-        items = soup.select("div#main-content div.row")[:5]
+        # استهداف الصور مباشرة
+        images = soup.select("img.img-icon")[:5]
         
-        if not items:
-            logger.warning("Comss: لم يتم العثور على عناصر. قد يكون الموقع غير متاح أو تغير هيكله.")
+        if not images:
+            logger.warning("Comss: لم يتم العثور على صور. قد يكون الموقع غير متاح أو تغير هيكله.")
             return
 
-        for item in items:
-            # البحث عن العنوان والرابط
-            title_tag = item.select_one("div.list_title.clip a")
+        for img in images:
+            # الصعود للعنصر الأب الذي يحتوي على العنوان والوصف
+            parent_row = img.find_parent("div", class_="row")
+            if not parent_row:
+                continue
+
+            # البحث عن العنوان
+            title_tag = parent_row.select_one("div.list_title.clip a")
             if not title_tag:
                 continue
             title = html.escape(title_tag.text.strip())
@@ -56,12 +61,11 @@ async def check_comss(bot):
                 link = "https://www.comss.ru/" + link
 
             # البحث عن الوصف
-            desc_tag = item.select_one("div.list_desc.clip")
+            desc_tag = parent_row.select_one("div.list_desc.clip")
             description = html.escape(desc_tag.text.strip()[:200]) if desc_tag else ""
 
-            # البحث عن الصورة (img.img-icon)
-            img_tag = item.select_one("img.img-icon")
-            image_url = img_tag.get("src", "") if img_tag else ""
+            # رابط الصورة
+            image_url = img.get("src", "")
 
             caption = f"<b>💿 {title}</b>\n"
             if description:
