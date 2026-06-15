@@ -2,6 +2,7 @@ import logging, os, html, re, urllib.parse
 from telegram import Bot
 import feedparser
 import asyncio
+from datetime import datetime, timezone
 
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 YOUR_USER_ID = int(os.environ.get("USER_ID", "0"))
@@ -29,8 +30,20 @@ def extract_image_url(entry):
 async def main():
     bot = Bot(token=TOKEN)
 
-    # تصحيح: اطبع رقم المستخدم للتأكد
-    logger.info(f"Using USER_ID: {YOUR_USER_ID}")
+    # --- رسالة النبض (الحالة) ---
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    feeds_count = 0
+    if os.path.exists(FEEDS_FILE):
+        with open(FEEDS_FILE, "r") as f:
+            feeds_count = len([line for line in f if line.strip() and not line.startswith("#")])
+
+    status_msg = f"✅ نبض البوت: {now}\n📡 البوت يعمل تلقائياً كل 6 ساعات.\n📰 عدد الخلاصات النشطة: {feeds_count}"
+
+    try:
+        await bot.send_message(chat_id=YOUR_USER_ID, text=status_msg)
+        logger.info("Status message sent.")
+    except Exception as e:
+        logger.error(f"Failed to send status: {e}")
 
     if not os.path.exists(FEEDS_FILE):
         logger.error("ملف feeds.txt غير موجود.")
