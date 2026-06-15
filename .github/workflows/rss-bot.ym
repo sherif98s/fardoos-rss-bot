@@ -1,0 +1,30 @@
+name: RSS Bot Check
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # كل 6 ساعات
+  workflow_dispatch:  # يسمح بالتشغيل اليدوي
+
+jobs:
+  check-feeds:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: استنساخ المستودع
+      uses: actions/checkout@v4
+
+    - name: إعداد Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: تثبيت المكتبات
+      run: |
+        pip install python-telegram-bot==21.3
+        pip install feedparser==6.0.11
+
+    - name: تشغيل البوت وفحص الخلاصات
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      run: python bot.py
