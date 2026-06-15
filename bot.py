@@ -74,14 +74,15 @@ async def check_comss(bot):
 
             try:
                 if image_url:
-                    await bot.send_photo(chat_id=YOUR_USER_ID, photo=image_url, caption=caption, parse_mode="HTML")
+                    # تحميل الصورة إلى الذاكرة أولاً لتجاوز مشاكل الروابط
+                    img_data = requests.get(image_url, headers=headers, timeout=10).content
+                    await bot.send_photo(chat_id=YOUR_USER_ID, photo=img_data, caption=caption, parse_mode="HTML")
                 else:
                     await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Failed to send comss entry: {e}")
                 # إذا فشلت الصورة، نرسل النص فقط
-                if image_url:
-                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+                await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Comss request failed: {e}")
