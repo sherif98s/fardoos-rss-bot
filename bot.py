@@ -101,56 +101,58 @@ async def process_webpages(bot):
             # 1. تحميل الصفحة الرئيسية
             response = requests.get(homepage_url, headers=headers, timeout=15)
             response.raise_for_status()
-            downloaded = trafilatura.fetch_url(homepage_url)
-            if not downloaded:
-                logger.warning(f"Trafilatura failed to download {homepage_url}")
-                continue
+            soup = BeautifulSoup(response.text, "html.parser")
 
-            # 2. استخراج الروابط من الصفحة الرئيسية
-            soup = BeautifulSoup(downloaded, "html.parser")
-            article_links = []
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                # تجاهل الروابط غير المقالية (مثل روابط التواصل الاجتماعي، التنقل، إلخ)
-                if not href.startswith("#") and len(href) > 10:
-                    full_url = urllib.parse.urljoin(homepage_url, href)
-                    article_links.append(full_url)
+            # 2. البحث عن روابط المقالات المحتملة
+            article_candidates = []
 
-            # 3. تصفية الروابط وإزالة التكرار
-            unique_links = list(dict.fromkeys(article_links))[:10]  # نحلل أول 10 روابط فريدة
+            # الأنماط الشائعة لعناوين المقالات في المواقع العربية
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                text = a_tag.get_text(strip=True)
+
+                # تجاهل الروابط غير المفيدة
+                if not text or len(text) < 15 or href.startswith("#"):
+                    continue
+
+                # تجاهل روابط التنقل والشبكات الاجتماعية
+                if any(keyword in text.lower() for keyword in ["رئيسية", "اتصل بنا", "من نحن", "سياسة الخصوصية", "facebook", "twitter", "youtube", "instagram"]):
+                    continue
+
+                # بناء الرابط الكامل
+                full_url = urllib.parse.urljoin(homepage_url, href)
+
+                # البحث عن عنصر أبوي (parent) قد يحتوي على صورة
+                parent = a_tag.find_parent(["article", "div", "li", "section"])
+                img_tag = parent.find("img") if parent else None
+                img_url = img_tag.get("src") if img_tag else ""
+                if img_url and not img_url.startswith("http"):
+                    img_url = urllib.parse.urljoin(homepage_url, img_url)
+
+                article_candidates.append({
+                    "title": text,
+                    "url": full_url,
+                    "image_url": img_url
+                })
+
+            # 3. إزالة التكرارات (بناءً على الرابط)
+            seen_urls = set()
+            unique_articles = []
+            for article in article_candidates:
+                if article["url"] not in seen_urls:
+                    seen_urls.add(article["url"])
+                    unique_articles.append(article)
+
+            # 4. إرسال أول 3 مقالات
             articles_sent = 0
+            for article in unique_articles[:3]:
+                title = html.escape(article["title"])
+                link = article["url"]
+                image_url = article["image_url"]
 
-            for article_url in unique_links:
-                if articles_sent >= 3:  # نكتفي بـ 3 مقالات لكل موقع
-                    break
+                caption = f"<b>📰 {title}</b>\n<a href='{link}'>🔗 رابط المقال</a>"
 
                 try:
-                    # 4. استخراج المحتوى الرئيسي من المقال
-                    article_html = trafilatura.fetch_url(article_url)
-                    if not article_html:
-                        continue
-                    extracted = trafilatura.extract(article_html, output_format="xml")
-                    if not extracted:
-                        continue
-
-                    # تحليل الـ XML المستخرج للحصول على العنوان والنص والصورة
-                    article_soup = BeautifulSoup(extracted, "xml")
-                    title_tag = article_soup.find("title")
-                    title = title_tag.text if title_tag else "بدون عنوان"
-                    text_tag = article_soup.find("text")
-                    description = text_tag.text[:200] if text_tag else ""
-                    image_tag = article_soup.find("image")
-                    image_url = image_tag.text if image_tag else ""
-
-                    title = html.escape(title)
-                    description = html.escape(description)
-
-                    caption = f"<b>📰 {title}</b>\n"
-                    if description:
-                        caption += f"<i>{description}</i>\n"
-                    caption += f"<a href='{article_url}'>🔗 رابط المقال</a>"
-
-                    # إرسال المقال
                     if image_url:
                         try:
                             img_data = requests.get(image_url, headers=headers, timeout=10).content
@@ -159,16 +161,14 @@ async def process_webpages(bot):
                             await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
                     else:
                         await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
-
                     articles_sent += 1
-
                 except Exception as e:
-                    logger.error(f"Error processing article {article_url}: {e}")
-                    continue
+                    logger.error(f"Error sending article from {homepage_url}: {e}")
+
+            logger.info(f"Sent {articles_sent} articles from {homepage_url}")
 
         except Exception as e:
             logger.error(f"Error processing homepage {homepage_url}: {e}")
-
 async def main():
     bot = Bot(token=TOKEN)
 
