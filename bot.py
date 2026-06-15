@@ -64,13 +64,15 @@ async def main():
                 caption = f"<b>📰 {title}</b>\n<a href='{link}'>🔗 رابط المقال</a>"
                 image_url = extract_image_url(entry)
                 
-                try:
-                    if image_url:
+                # محاولة إرسال الصورة، وإذا فشلت نرسل النص فقط
+                if image_url:
+                    try:
                         await bot.send_photo(chat_id=YOUR_USER_ID, photo=image_url, caption=caption, parse_mode="HTML")
-                    else:
+                    except Exception:
+                        # فشل إرسال الصورة (رابط معطوب مثلاً)، نرسل النص بدلاً منها
                         await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
-                except Exception as e:
-                    logger.error(f"Failed to send entry: {e}")
+                else:
+                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Error checking feed {url}: {e}")
 
