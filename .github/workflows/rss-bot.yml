@@ -24,6 +24,7 @@ jobs:
         pip install python-telegram-bot==21.3
         pip install feedparser==6.0.11
         pip install requests beautifulsoup4
+        pip install trafilatura lxml
 
     - name: تشغيل البوت وفحص الخلاصات
       env:
