@@ -111,6 +111,7 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute("INSERT INTO feeds (user_id, feed_url, feed_title) VALUES (?, ?, ?)", (user_id, url, title))
         conn.commit()
         conn.close()
+        commit_and_push()
         await update.message.reply_text(f"تمت إضافة: {title}")
     except sqlite3.IntegrityError:
         await update.message.reply_text("هذه الخلاصة مضافة بالفعل.")
@@ -154,6 +155,7 @@ async def remove_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("DELETE FROM sent_entries WHERE user_id=? AND entry_id LIKE ?", (user_id, f"%{url}%"))
     conn.commit()
     conn.close()
+    commit_and_push()
     await update.message.reply_text(f"تم حذف: {title}")
 
 async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,6 +231,7 @@ async def check_feeds_for_user(user_id):
             logger.error(f"Error checking feed {url}: {e}")
     conn.commit()
     conn.close()
+    commit_and_push()
     return new_count
 
 # ---------- دوال جديدة خاصة بـ GitHub Actions ----------
@@ -267,10 +270,11 @@ async def check_all_feeds_and_save():
     # حفظ التغييرات بعد الفحص
     commit_and_push()
 # --------------------------------------------------
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/check":
-            asyncio.run(check_all_feeds_and_save())  # تم التعديل هنا لاستدعاء دالة الحفظ
+            asyncio.run(check_all_feeds_and_save())
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
