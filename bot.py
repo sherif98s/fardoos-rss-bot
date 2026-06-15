@@ -38,22 +38,24 @@ async def check_comss(bot):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
-        items = soup.select("div.news_item")[:5]  # أحدث 5 برامج
+        # المحدد الصحيح بناءً على هيكل HTML الذي شاركته
+        items = soup.select("div.row div.col-xs-8.col-sm-8.col-md-6.col-lg-6")[:5]
         
         if not items:
             logger.warning("Comss: لم يتم العثور على عناصر. قد يكون الموقع غير متاح أو تغير هيكله.")
             return
 
         for item in items:
-            title_tag = item.select_one("a.news_title")
+            title_tag = item.select_one("div.list_title.clip a")
             if not title_tag:
                 continue
             title = html.escape(title_tag.text.strip())
             link = title_tag.get("href", "")
             if link and not link.startswith("http"):
-                link = "https://www.comss.ru" + link
+                link = "https://www.comss.ru/" + link
             
-            desc_tag = item.select_one("div.news_desc")
+            # استخراج الوصف من div.list_desc.clip
+            desc_tag = item.parent.select_one("div.list_desc.clip") if item.parent else None
             description = html.escape(desc_tag.text.strip()[:200]) if desc_tag else ""
             
             caption = f"<b>💿 {title}</b>\n"
