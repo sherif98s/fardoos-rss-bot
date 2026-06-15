@@ -282,6 +282,10 @@ def main():
     # إذا كنا في بيئة GitHub Actions، قم بتشغيل الفحص والحفظ ثم اخرج
     if os.environ.get("GITHUB_ACTIONS") == "true":
         init_db()
+        # إجبار إنشاء ملف قاعدة البيانات إذا لم يكن موجوداً
+        if not os.path.exists(DB_PATH):
+            conn = sqlite3.connect(DB_PATH)
+            conn.close()
         asyncio.run(check_all_feeds_and_save())
         sys.exit(0)
     
