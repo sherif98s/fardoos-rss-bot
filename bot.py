@@ -5,10 +5,12 @@ import asyncio
 from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup
+import trafilatura
 
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 YOUR_USER_ID = int(os.environ.get("USER_ID", "0"))
 FEEDS_FILE = "feeds.txt"
+WEBPAGES_FILE = "webpages.txt"
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,20 +40,17 @@ async def check_comss(bot):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
-        # استهداف الصور مباشرة
         images = soup.select("img.img-icon")[:5]
         
         if not images:
-            logger.warning("Comss: لم يتم العثور على صور. قد يكون الموقع غير متاح أو تغير هيكله.")
+            logger.warning("Comss: لم يتم العثور على صور.")
             return
 
         for img in images:
-            # الصعود للعنصر الأب الذي يحتوي على العنوان والوصف
             parent_row = img.find_parent("div", class_="row")
             if not parent_row:
                 continue
 
-            # البحث عن العنوان
             title_tag = parent_row.select_one("div.list_title.clip a")
             if not title_tag:
                 continue
@@ -60,11 +59,9 @@ async def check_comss(bot):
             if link and not link.startswith("http"):
                 link = "https://www.comss.ru/" + link
 
-            # البحث عن الوصف
             desc_tag = parent_row.select_one("div.list_desc.clip")
             description = html.escape(desc_tag.text.strip()[:200]) if desc_tag else ""
 
-            # رابط الصورة
             image_url = img.get("src", "")
 
             caption = f"<b>💿 {title}</b>\n"
@@ -74,25 +71,108 @@ async def check_comss(bot):
 
             try:
                 if image_url:
-                    # تحميل الصورة إلى الذاكرة أولاً لتجاوز مشاكل الروابط
                     img_data = requests.get(image_url, headers=headers, timeout=10).content
                     await bot.send_photo(chat_id=YOUR_USER_ID, photo=img_data, caption=caption, parse_mode="HTML")
                 else:
                     await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Failed to send comss entry: {e}")
-                # إذا فشلت الصورة، نرسل النص فقط
-                await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+                if image_url:
+                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Comss request failed: {e}")
     except Exception as e:
         logger.error(f"Error checking comss: {e}")
 
+async def process_webpages(bot):
+    """معالجة الصفحات الرئيسية من webpages.txt واستخراج أحدث المقالات"""
+    if not os.path.exists(WEBPAGES_FILE):
+        logger.info("ملف webpages.txt غير موجود. تخطي.")
+        return
+
+    with open(WEBPAGES_FILE, "r") as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    for homepage_url in urls:
+        try:
+            # 1. تحميل الصفحة الرئيسية
+            response = requests.get(homepage_url, headers=headers, timeout=15)
+            response.raise_for_status()
+            downloaded = trafilatura.fetch_url(homepage_url)
+            if not downloaded:
+                logger.warning(f"Trafilatura failed to download {homepage_url}")
+                continue
+
+            # 2. استخراج الروابط من الصفحة الرئيسية
+            soup = BeautifulSoup(downloaded, "html.parser")
+            article_links = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                # تجاهل الروابط غير المقالية (مثل روابط التواصل الاجتماعي، التنقل، إلخ)
+                if not href.startswith("#") and len(href) > 10:
+                    full_url = urllib.parse.urljoin(homepage_url, href)
+                    article_links.append(full_url)
+
+            # 3. تصفية الروابط وإزالة التكرار
+            unique_links = list(dict.fromkeys(article_links))[:10]  # نحلل أول 10 روابط فريدة
+            articles_sent = 0
+
+            for article_url in unique_links:
+                if articles_sent >= 3:  # نكتفي بـ 3 مقالات لكل موقع
+                    break
+
+                try:
+                    # 4. استخراج المحتوى الرئيسي من المقال
+                    article_html = trafilatura.fetch_url(article_url)
+                    if not article_html:
+                        continue
+                    extracted = trafilatura.extract(article_html, output_format="xml")
+                    if not extracted:
+                        continue
+
+                    # تحليل الـ XML المستخرج للحصول على العنوان والنص والصورة
+                    article_soup = BeautifulSoup(extracted, "xml")
+                    title_tag = article_soup.find("title")
+                    title = title_tag.text if title_tag else "بدون عنوان"
+                    text_tag = article_soup.find("text")
+                    description = text_tag.text[:200] if text_tag else ""
+                    image_tag = article_soup.find("image")
+                    image_url = image_tag.text if image_tag else ""
+
+                    title = html.escape(title)
+                    description = html.escape(description)
+
+                    caption = f"<b>📰 {title}</b>\n"
+                    if description:
+                        caption += f"<i>{description}</i>\n"
+                    caption += f"<a href='{article_url}'>🔗 رابط المقال</a>"
+
+                    # إرسال المقال
+                    if image_url:
+                        try:
+                            img_data = requests.get(image_url, headers=headers, timeout=10).content
+                            await bot.send_photo(chat_id=YOUR_USER_ID, photo=img_data, caption=caption, parse_mode="HTML")
+                        except Exception:
+                            await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+                    else:
+                        await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+
+                    articles_sent += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing article {article_url}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error processing homepage {homepage_url}: {e}")
+
 async def main():
     bot = Bot(token=TOKEN)
 
-    # --- رسالة النبض (الحالة) ---
+    # --- رسالة النبض ---
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     feeds_count = 0
     if os.path.exists(FEEDS_FILE):
@@ -110,37 +190,35 @@ async def main():
     # فحص comss.ru مباشرة
     await check_comss(bot)
 
+    # فحص الصفحات الرئيسية من webpages.txt
+    await process_webpages(bot)
+
     # فحص خلاصات RSS من feeds.txt
-    if not os.path.exists(FEEDS_FILE):
-        logger.error("ملف feeds.txt غير موجود.")
-        return
+    if os.path.exists(FEEDS_FILE):
+        with open(FEEDS_FILE, "r") as f:
+            urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    with open(FEEDS_FILE, "r") as f:
-        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-
-    for url in urls:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:  # أحدث 3 مقالات
-                title = html.escape(entry.get("title", "بدون عنوان"))
-                link = entry.get("link", "")
-                if not link:
-                    continue
-                
-                caption = f"<b>📰 {title}</b>\n<a href='{link}'>🔗 رابط المقال</a>"
-                image_url = extract_image_url(entry)
-                
-                # محاولة إرسال الصورة، وإذا فشلت نرسل النص فقط
-                if image_url:
-                    try:
-                        await bot.send_photo(chat_id=YOUR_USER_ID, photo=image_url, caption=caption, parse_mode="HTML")
-                    except Exception:
-                        # فشل إرسال الصورة (رابط معطوب مثلاً)، نرسل النص بدلاً منها
+        for url in urls:
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:3]:
+                    title = html.escape(entry.get("title", "بدون عنوان"))
+                    link = entry.get("link", "")
+                    if not link:
+                        continue
+                    
+                    caption = f"<b>📰 {title}</b>\n<a href='{link}'>🔗 رابط المقال</a>"
+                    image_url = extract_image_url(entry)
+                    
+                    if image_url:
+                        try:
+                            await bot.send_photo(chat_id=YOUR_USER_ID, photo=image_url, caption=caption, parse_mode="HTML")
+                        except Exception:
+                            await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+                    else:
                         await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
-                else:
-                    await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Error checking feed {url}: {e}")
+            except Exception as e:
+                logger.error(f"Error checking feed {url}: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
