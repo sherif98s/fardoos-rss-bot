@@ -2,3 +2,4 @@ https://feeds.bbci.co.uk/arabic/rss.xml
 https://www.al-jazirah.com/rss/fe.xml?utm_source=rss-jazirah&utm_medium=rss&utm_campaign=rss
 http://feeds.feedburner.com/giveawayoftheday/feed
 https://fetchrss.com/feed/1wXVuJCeS4mZ1wXVxT9JOBYx.rss
+https://fetchrss.com/feed/1wZAfrEZqDL81wZAd548JD4u.rss
