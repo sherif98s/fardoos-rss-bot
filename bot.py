@@ -240,8 +240,8 @@ def commit_and_push():
         subprocess.run(["git", "config", "user.name", "RSS Bot"], check=True)
         subprocess.run(["git", "config", "user.email", "bot@example.com"], check=True)
         
-        # إضافة ملف قاعدة البيانات
-        subprocess.run(["git", "add", "rss_bot.db"], check=True)
+        # استخدام DB_PATH بدلاً من النص الثابت
+        subprocess.run(["git", "add", DB_PATH], check=True)
         
         # التحقق من وجود تغييرات
         result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True)
@@ -267,7 +267,6 @@ async def check_all_feeds_and_save():
     # حفظ التغييرات بعد الفحص
     commit_and_push()
 # --------------------------------------------------
-
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/check":
