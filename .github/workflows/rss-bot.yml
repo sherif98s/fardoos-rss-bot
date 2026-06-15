@@ -27,4 +27,5 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        GITHUB_ACTIONS: true  # هذا المتغير يخبر البوت أنه في بيئة GitHub Actions
       run: python bot.py
