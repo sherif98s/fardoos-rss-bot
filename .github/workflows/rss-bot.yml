@@ -9,7 +9,7 @@ jobs:
   check-feeds:
     runs-on: ubuntu-latest
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # يجعل الأدوات تستخدم Node.js 24 فوراً
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
     - name: استنساخ المستودع
       uses: actions/checkout@v4
@@ -23,6 +23,7 @@ jobs:
       run: |
         pip install python-telegram-bot==21.3
         pip install feedparser==6.0.11
+        pip install requests beautifulsoup4
 
     - name: تشغيل البوت وفحص الخلاصات
       env:
