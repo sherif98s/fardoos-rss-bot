@@ -3,6 +3,8 @@ from telegram import Bot
 import feedparser
 import asyncio
 from datetime import datetime, timezone
+import requests
+from bs4 import BeautifulSoup
 
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 YOUR_USER_ID = int(os.environ.get("USER_ID", "0"))
@@ -27,6 +29,48 @@ def extract_image_url(entry):
             return match.group(1)
     return None
 
+async def check_comss(bot):
+    """فحص موقع comss.ru/club واستخراج أحدث البرامج"""
+    url = "https://www.comss.ru/list.php?c=club"
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        items = soup.select("div.news_item")[:5]  # أحدث 5 برامج
+        
+        if not items:
+            logger.warning("Comss: لم يتم العثور على عناصر. قد يكون الموقع غير متاح أو تغير هيكله.")
+            return
+
+        for item in items:
+            title_tag = item.select_one("a.news_title")
+            if not title_tag:
+                continue
+            title = html.escape(title_tag.text.strip())
+            link = title_tag.get("href", "")
+            if link and not link.startswith("http"):
+                link = "https://www.comss.ru" + link
+            
+            desc_tag = item.select_one("div.news_desc")
+            description = html.escape(desc_tag.text.strip()[:200]) if desc_tag else ""
+            
+            caption = f"<b>💿 {title}</b>\n"
+            if description:
+                caption += f"<i>{description}</i>\n"
+            caption += f"<a href='{link}'>🔗 رابط البرنامج</a>"
+            
+            try:
+                await bot.send_message(chat_id=YOUR_USER_ID, text=caption, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Failed to send comss entry: {e}")
+                
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Comss request failed: {e}")
+    except Exception as e:
+        logger.error(f"Error checking comss: {e}")
+
 async def main():
     bot = Bot(token=TOKEN)
 
@@ -45,6 +89,10 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to send status: {e}")
 
+    # فحص comss.ru مباشرة
+    await check_comss(bot)
+
+    # فحص خلاصات RSS من feeds.txt
     if not os.path.exists(FEEDS_FILE):
         logger.error("ملف feeds.txt غير موجود.")
         return
