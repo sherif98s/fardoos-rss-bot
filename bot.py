@@ -28,7 +28,10 @@ def extract_image_url(entry):
 
 async def main():
     bot = Bot(token=TOKEN)
-    
+
+    # تصحيح: اطبع رقم المستخدم للتأكد
+    logger.info(f"Using USER_ID: {YOUR_USER_ID}")
+
     if not os.path.exists(FEEDS_FILE):
         logger.error("ملف feeds.txt غير موجود.")
         return
