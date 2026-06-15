@@ -7,7 +7,10 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-DB_PATH = "/data/rss_bot.db"  # سيُستخدم فقط على Railway
+if os.environ.get("GITHUB_ACTIONS") == "true":
+    DB_PATH = "rss_bot.db"  # في GitHub Actions: المسار المحلي
+else:
+    DB_PATH = "/data/rss_bot.db"  # في Railway: المسار الدائم
 PORT = 3000
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
