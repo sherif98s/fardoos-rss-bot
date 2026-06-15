@@ -41,7 +41,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - تشغيل البوت\n"
         "/add <رابط> - إضافة خلاصة RSS\n"
         "/test <رابط> - معاينة الخلاصة قبل إضافتها\n"
-        "/list - عرض الخلاصات المضافة\n"
+        "/list - عرض الخلاصات المضافة (بالأرقام)\n"
+        "/remove <رقم> - حذف خلاصة من القائمة\n"
         "/check - فحص فوري للخلاصات\n"
         "/help - هذه المساعدة"
     )
@@ -117,7 +118,39 @@ async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = c.fetchall()
     conn.close()
     if not rows: await update.message.reply_text("لا توجد خلاصات."); return
-    await update.message.reply_text("\n".join([f"- {r[0]}: {r[1]}" for r in rows]))
+    # ترقيم الخلاصات لتسهيل الحذف
+    msg = "\n".join([f"{i+1}. {r[0]}\n   {r[1]}" for i, r in enumerate(rows)])
+    await update.message.reply_text(msg)
+
+async def remove_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text("استخدم الأمر هكذا: /remove <رقم الخلاصة>\nلمعرفة الأرقام، استخدم /list")
+        return
+    try:
+        index = int(context.args[0]) - 1
+    except ValueError:
+        await update.message.reply_text("الرجاء إدخال رقم صحيح.")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT feed_url, feed_title FROM feeds WHERE user_id=?", (user_id,))
+    rows = c.fetchall()
+    
+    if index < 0 or index >= len(rows):
+        await update.message.reply_text("رقم الخلاصة غير موجود.")
+        conn.close()
+        return
+    
+    url, title = rows[index]
+    # حذف الخلاصة
+    c.execute("DELETE FROM feeds WHERE user_id=? AND feed_url=?", (user_id, url))
+    # تنظيف المقالات المرتبطة (اختياري، للحفاظ على نظافة القاعدة)
+    c.execute("DELETE FROM sent_entries WHERE user_id=? AND entry_id LIKE ?", (user_id, f"%{url}%"))
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(f"تم حذف: {title}")
 
 async def check_feeds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -223,6 +256,7 @@ def main():
     app.add_handler(CommandHandler("test", test_feed))
     app.add_handler(CommandHandler("add", add_feed))
     app.add_handler(CommandHandler("list", list_feeds))
+    app.add_handler(CommandHandler("remove", remove_feed))
     app.add_handler(CommandHandler("check", check_feeds_command))
     Thread(target=run_health_server, daemon=True).start()
     logger.info("Bot started with auto-check, HTML formatting, image support, and fallback to plain text...")
