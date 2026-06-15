@@ -27,6 +27,6 @@ jobs:
     - name: تشغيل البوت وفحص الخلاصات
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        USER_ID: ${{ secrets.USER_ID }}
         GITHUB_ACTIONS: true
       run: python bot.py
