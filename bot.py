@@ -1,4 +1,4 @@
-import logging, os, sqlite3, asyncio, html, re, urllib.parse
+import logging, os, sqlite3, asyncio, html, re, urllib.parse, subprocess, sys
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -7,7 +7,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-DB_PATH = "/data/rss_bot.db"
+DB_PATH = "/data/rss_bot.db"  # سيُستخدم فقط على Railway
 PORT = 3000
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -118,7 +118,6 @@ async def list_feeds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = c.fetchall()
     conn.close()
     if not rows: await update.message.reply_text("لا توجد خلاصات."); return
-    # ترقيم الخلاصات لتسهيل الحذف
     msg = "\n".join([f"{i+1}. {r[0]}\n   {r[1]}" for i, r in enumerate(rows)])
     await update.message.reply_text(msg)
 
@@ -144,9 +143,7 @@ async def remove_feed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     url, title = rows[index]
-    # حذف الخلاصة
     c.execute("DELETE FROM feeds WHERE user_id=? AND feed_url=?", (user_id, url))
-    # تنظيف المقالات المرتبطة (اختياري، للحفاظ على نظافة القاعدة)
     c.execute("DELETE FROM sent_entries WHERE user_id=? AND entry_id LIKE ?", (user_id, f"%{url}%"))
     conn.commit()
     conn.close()
@@ -227,7 +224,32 @@ async def check_feeds_for_user(user_id):
     conn.close()
     return new_count
 
-async def check_all_feeds():
+# ---------- دوال جديدة خاصة بـ GitHub Actions ----------
+def commit_and_push():
+    """حفظ ملف قاعدة البيانات ورفعه إلى GitHub."""
+    try:
+        # إعداد Git (باستخدام التوكن للمصادقة)
+        repo_url = f"https://x-access-token:{os.environ.get('GH_TOKEN')}@github.com/sherif98s/fardoos-rss-bot.git"
+        subprocess.run(["git", "config", "user.name", "RSS Bot"], check=True)
+        subprocess.run(["git", "config", "user.email", "bot@example.com"], check=True)
+        
+        # إضافة ملف قاعدة البيانات
+        subprocess.run(["git", "add", "rss_bot.db"], check=True)
+        
+        # التحقق من وجود تغييرات
+        result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True)
+        if result.returncode == 0:
+            logger.info("لا توجد تغييرات لحفظها في قاعدة البيانات.")
+            return
+        
+        # حفظ التغييرات ورفعها
+        subprocess.run(["git", "commit", "-m", "تحديث قاعدة البيانات تلقائياً"], check=True)
+        subprocess.run(["git", "push", repo_url, "HEAD:main"], check=True)
+        logger.info("تم حفظ قاعدة البيانات ورفعها إلى GitHub بنجاح.")
+    except Exception as e:
+        logger.error(f"فشل في حفظ قاعدة البيانات: {e}")
+
+async def check_all_feeds_and_save():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT DISTINCT user_id FROM feeds")
@@ -235,11 +257,14 @@ async def check_all_feeds():
     conn.close()
     for user_id in users:
         await check_feeds_for_user(user_id)
+    # حفظ التغييرات بعد الفحص
+    commit_and_push()
+# --------------------------------------------------
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/check":
-            asyncio.run(check_all_feeds())
+            asyncio.run(check_all_feeds_and_save())  # تم التعديل هنا لاستدعاء دالة الحفظ
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
