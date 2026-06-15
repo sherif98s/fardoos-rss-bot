@@ -273,6 +273,13 @@ def run_health_server():
     HTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
 
 def main():
+    # إذا كنا في بيئة GitHub Actions، قم بتشغيل الفحص والحفظ ثم اخرج
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        init_db()
+        asyncio.run(check_all_feeds_and_save())
+        sys.exit(0)
+    
+    # وإلا، اعمل كالمعتاد مع خادم HTTP (لـ Railway)
     init_db()
     global app
     app = Application.builder().token(TOKEN).build()
