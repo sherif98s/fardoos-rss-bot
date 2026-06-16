@@ -3,9 +3,9 @@
 > **"لسنا ننتظر الحلول، نحن نصنعها."**  
 > بوت تيليجرام استراتيجي، مجاني بالكامل، يعمل تلقائياً كل 6 ساعات عبر GitHub Actions. يقرأ خلاصات RSS من ملف `feeds.txt`، ويُرسل أحدث الأخبار بتنسيق HTML أنيق مع الصور المصغرة، دون الحاجة إلى أي خادم خارجي.
 
-![GitHub last commit](https://img.shields.io/github/last-commit/sherif98s/fardoos-rss-bot)
-![GitHub repo size](https://img.shields.io/github/repo-size/sherif98s/fardoos-rss-bot)
-![License](https://img.shields.io/github/license/sherif98s/fardoos-rss-bot)
+![GitHub last commit](https://img.shields.io/github/last-commit/sherif98s/fardoos-rss-bot?style=flat-square&cacheSeconds=3600)
+![GitHub repo size](https://img.shields.io/github/repo-size/sherif98s/fardoos-rss-bot?style=flat-square&cacheSeconds=3600)
+![License](https://img.shields.io/github/license/sherif98s/fardoos-rss-bot?style=flat-square&cacheSeconds=3600)
 
 ---
 
